@@ -1,0 +1,11 @@
+# 忽略所有数据集文件夹和大型文件
+data/
+dataset/
+*.pt
+*.csv
+*.xlsx
+
+# 忽略 IDE 配置文件和缓存
+.idea/
+__pycache__/
+*.pyc

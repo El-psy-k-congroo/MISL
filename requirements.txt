@@ -1,0 +1,7 @@
+gseapy==1.1.13
+mygene==3.2.2
+networkx==3.4.2
+rdkit==2024.9.6
+statsmodels==0.14.6
+torch==2.5.1
+tqdm==4.67.1

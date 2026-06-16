@@ -10,24 +10,23 @@ import sys
 
 from torch_geometric.nn import global_mean_pool
 
-from model.layers import HierarchicalMechanismBottleneckFusion
+from model.layers import MechanismInspiredSlotLearning
 
 BASEDIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(BASEDIR)
 import torch
 from torch import nn
 from encoder import RGCN
-from fusion import BiContextModulation, DualInteract, CrossCoAttention, CrossInteractionAttention
-from losses import CGSCL_Loss
+from fusion import DualViewCoModulation, DualInteract
 import torch
 
 
 
-class Synergy(nn.Module):
+class MISL(nn.Module):
     def __init__(self, max_mol_rel,
                  used_drug_dict, used_cell_dict, input_dim, hidden_dim, output_dim, num_relations=6, proj_dim=256, depth=2, num_slots=4, dropout=0.5,
                  device='cuda:0'):
-        super(Synergy, self).__init__()
+        super(MISL, self).__init__()
 
         self.device = device
 
@@ -57,10 +56,10 @@ class Synergy(nn.Module):
                                                    nn.Dropout(dropout))
 
 
-        self.hbf = HierarchicalMechanismBottleneckFusion(d_model=proj_dim, depth=depth, num_slots=num_slots)
+        self.hbf = MechanismInspiredSlotLearning(d_model=proj_dim, depth=depth, num_slots=num_slots)
 
 
-        self.context_modulation = BiContextModulation(proj_dim)
+        self.context_modulation = DualViewCoModulation(proj_dim)
 
         self.feature_interact_kg = DualInteract(field_dim=3, embed_size=proj_dim, dropout=dropout, layers=2)  # 0.5
         self.feature_interact_fd = DualInteract(field_dim=3, embed_size=proj_dim, dropout=dropout, layers=2)  # 0.5
@@ -113,12 +112,12 @@ class Synergy(nn.Module):
         # 1. 获取 KG Embeddings
         kg_rgcn_embedding = self.kg_rgcn_encoder(kg_data.x, kg_data.edge_index, kg_data.edge_attr)
 
-        drug_tg_1 = self.kg_drug_dense(kg_rgcn_embedding[drugA_ids])
-        drug_tg_2 = self.kg_drug_dense(kg_rgcn_embedding[drugB_ids])
-        cline_tg = self.kg_cell_dense(kg_rgcn_embedding[cell_ids])
+        drug_kg_1 = self.kg_drug_dense(kg_rgcn_embedding[drugA_ids])
+        drug_kg_2 = self.kg_drug_dense(kg_rgcn_embedding[drugB_ids])
+        cline_kg = self.kg_cell_dense(kg_rgcn_embedding[cell_ids])
 
         # KG Triplet
-        h_kg_triplet = torch.stack([drug_tg_1, drug_tg_2, cline_tg], dim=1)
+        h_kg_triplet = torch.stack([drug_kg_1, drug_kg_2, cline_kg], dim=1)
 
         # 2. 获取特征域 Embeddings
         cline_fea_proj = self.cell_dense(cell_feature)
@@ -132,62 +131,29 @@ class Synergy(nn.Module):
         drugB_map_ids = [self.used_drug_dict[id] for id in drugB_ids.tolist()]
         cell_map_ids = [self.used_cell_dict[id] for id in cell_ids.tolist()]
 
-        drug_fp_1, drug_fp_2 = fused_drug_embs[drugA_map_ids], fused_drug_embs[drugB_map_ids]
-        cline_fp = cline_fea_proj[cell_map_ids]
+        drug_fine_1, drug_fine_2 = fused_drug_embs[drugA_map_ids], fused_drug_embs[drugB_map_ids]
+        cline_fine = cline_fea_proj[cell_map_ids]
 
-
-        update_d1, update_d2, update_c = self.hbf(drug_fp_1, drug_fp_2, cline_fp)
+        update_d1, update_d2, update_c = self.hbf(drug_fine_1, drug_fine_2, cline_fine)
         h_fd_triplet = torch.stack([update_d1, update_d2, update_c], dim=1)
 
-        ###########【消融实验】####################
-
-        # h_fd_triplet = torch.stack([drug_fp_1, drug_fp_2, cline_fp], dim=1)
-
-        ###########【消融实验】####################
-
-
         h_kg_mod, h_fd_mod = self.context_modulation(h_kg_triplet, h_fd_triplet)
-        # h_kg_mod = h_kg_triplet
-        # h_fd_mod = h_fd_triplet
 
         modality_kg = self.feature_interact_kg(h_kg_mod)
         modality_fd = self.feature_interact_fd(h_fd_mod)
-
-        ###########【消融实验】####################
-
-        # b, f, e = h_kg_mod.shape
-        #
-        # modality_kg = h_kg_mod.reshape(b, f * e)
-        # modality_fd = h_fd_mod.reshape(b, f * e)
-
-        ###########【消融实验】####################
 
         # --- 4. 预测与融合 ---
         output_kg = self.transform_modality_kg(modality_kg)
         output_fd = self.transform_modality_fd(modality_fd)
 
-
         # 3. 融合与输出
         fusion_modality = torch.cat([modality_kg, modality_fd], dim=1)
         output_mm = self.transform_fusion(fusion_modality)
 
-        #########[消融实验]###########################
+
 
         if return_features:
-            # 阶段 (a): 初始拼接特征 (HMBF 之前)
-            initial_triplet = torch.stack([drug_fp_1, drug_fp_2, cline_fp], dim=1)
-            b_size = initial_triplet.size(0)
-
-            # 将三元组张量展平为一维向量以供 t-SNE 使用
-            features_dict = {
-                'initial': h_fd_triplet.view(b_size, -1).detach().cpu().numpy(),
-                'macro_kg': h_kg_mod.view(b_size, -1).detach().cpu().numpy(),
-                'micro_fd': h_fd_mod.view(b_size, -1).detach().cpu().numpy(),
-                'final_joint': fusion_modality.detach().cpu().numpy()
-            }
-            # 返回预测结果和特征字典
-            return output_mm, features_dict
-
+            return None, None
 
         if infer:
             return output_mm

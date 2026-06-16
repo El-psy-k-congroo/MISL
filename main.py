@@ -18,13 +18,12 @@ from tqdm import tqdm
 import time
 from torch.utils.data import DataLoader
 from dataset.my_in_memory_dataset import collate1, collate2, SynergyDataset, GraphDataset, KGDataset
-from utils.data_preprocess import get_dict_from_json_file, load_datasets, get_dict_from_df, split_fold, \
-    get_split_generator
+from utils.data_preprocess import get_dict_from_json_file, load_datasets, get_dict_from_df, split_fold
 from utils.kg_utils import construct_kg
 from utils.feature_preprocess import build_aligned_features,  load_drug_data_features
 from utils.utils import setup_logger, set_random_seed, try_gpu, EarlyStopping, save, save_results
 from utils.trainer import train, valid
-from model.Synergy import Synergy
+from model.Synergy import MISL
 import torch.nn.functional as F
 
 
@@ -33,7 +32,7 @@ import torch.nn.functional as F
 def init_args(user_args=None):
     parser = argparse.ArgumentParser(description='Synergy prediction project')
 
-    parser.add_argument('--model_name', type=str, default='Synergy')
+    parser.add_argument('--model_name', type=str, default='MISL')
 
     parser.add_argument('--seed', type=int, default=2025,
                         help='seed')
@@ -46,11 +45,11 @@ def init_args(user_args=None):
     parser.add_argument('--batch_size', type=int, default=768)
     parser.add_argument('--num_epochs', type=int, default=600,
                         help='maximum number of epochs (default: 600)')
-    parser.add_argument('--patience', type=int, default=40,
+    parser.add_argument('--patience', type=int, default=70,
                         help='patience for early stopping (default: 70)')
 
     parser.add_argument("--depth", type=int, default=2,
-                        help="depth of HMBF [2, 3]")
+                        help="depth of slots [2, 3]")
     parser.add_argument("--num_slots", type=int, default=4,
                         help="number of slots [2, 4, 8, 16]")
 
@@ -64,17 +63,12 @@ def init_args(user_args=None):
 
     parser.add_argument("--alpha", type=float, default=5)
 
-    parser.add_argument('--split_strategy', type=str, default='cold_cell',
-                        choices=[ 'cold_drug', 'cold_cell', 'cold_comb'],
-                        help='Data splitting strategy for cross-validation')
-
 
     parser.add_argument('--saved-model', type=str,
                         help='the path of trained_model', default='./saved_model/0_fold_SynergyX.pth')
 
     parser.add_argument('--log', type=str, help='记录主要发生时的改变',
-                        default='这次是实验,改了数据集的划分方式，知识图谱用的是我自己的构建方式，细胞系用的是论文的，药物用分子图和分子指纹，加了一个背景知识上下文修正,试验加了KL散度，' +
-                                '这次实验在drugcombdb数据集上进行冷启动实验，不压缩,HMBF的层数是2，机制槽的位数是8'
+                        default=''
                                )
 
     args = parser.parse_args()
@@ -165,7 +159,7 @@ def load_dataloader(datasets, train_indices, valid_indices, test_indices, used_d
 
 def init_model(args, parameter_dict, learning_rate, epochs, trainLoader, device):
     # 假设 Synergy 模型已导入
-    model = Synergy(
+    model = MISL(
         max_mol_rel=parameter_dict['max_mol_rel'],
         input_dim=args.input_dim, hidden_dim=args.hidden_dim, output_dim=args.output_dim, num_relations=6, proj_dim=args.project_dim,
         depth=args.depth, num_slots=args.num_slots,
@@ -197,13 +191,12 @@ def main():
     batch_size = args.batch_size
     patience = args.patience
     num_epochs = args.num_epochs
-    split_strategy = args.split_strategy
 
     log_folder = os.path.join('logs/', data_type + f'{timestamp}' + '.log')
     logger = setup_logger(log_folder)
     logger.info(f'Title ===> {args.log}')
 
-    # experiment_folder = os.path.join('experiment/',split_strategy, data_type,  f'{timestamp}')
+
     experiment_folder = os.path.join('experiment/', data_type,  f'{timestamp}')
     if not os.path.exists(experiment_folder):
         os.makedirs(experiment_folder)
@@ -216,14 +209,9 @@ def main():
     folds = args.folds
     results_of_each_fold = []
 
-    # split_gen = get_split_generator(split_strategy, folds, datasets, seed=args.seed)
 
     for i, (train_indices, val_indices, test_indices) in tqdm(enumerate(
             zip(*split_fold(folds, datasets_without_labels, labels))), desc='CV===============>>'):
-    # for i, (train_indices, val_indices, test_indices) in tqdm(enumerate(split_gen),
-    #                                                           total=folds,
-    #                                                           desc=f'{split_strategy} CV'):
-    #     logger.info(f'================== Fold {i + 1} / {folds} ({split_strategy}) ===============================')
         logger.info(f'=================={i} / {folds}===============================')
 
         # 打印一下数据量，确保划分逻辑正确
@@ -238,7 +226,7 @@ def main():
         model, optimizer, scheduler = init_model(args, parameter_dict, args.lr, args.num_epochs, train_dataloader,
                                                  device)
         model.to(device)
-        # model.reset_parameters() # 如果模型有这个方法
+
 
         start_time = time.time()
         stopper = EarlyStopping(mode='higher', metric='accuracy', patience=patience, n_fold=i, folder=experiment_folder)

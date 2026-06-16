@@ -183,44 +183,6 @@ class Multi_CA(nn.Module):
         self.norm1 = nn.LayerNorm(dim)
         self.norm2 = nn.LayerNorm(dim)
 
-    # def forward(self, query, h_t, h_a, h_v):
-    #     b, n, _, h = *h_t.shape, self.heads
-    #
-    #     q = self.to_q(query)
-    #     k_t = self.to_k_t(h_t)
-    #     k_a = self.to_k_a(h_a)
-    #     k_v = self.to_k_v(h_v)
-    #     v_t = self.to_v_t(h_t)
-    #     v_a = self.to_v_a(h_a)
-    #     v_v = self.to_v_v(h_v)
-    #
-    #     q, k_t, k_a, k_v, v_t, v_a, v_v = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h=h),
-    #                                           (q, k_t, k_a, k_v, v_t, v_a, v_v))
-    #
-    #     dots_qt = einsum('b h i d, b h j d -> b h i j', q, k_t) * self.scale
-    #
-    #     # attention
-    #     attn_qt = self.softmax(dots_qt)
-    #     out_qt = einsum('b h i j, b h j d -> b h i d', attn_qt, v_t)
-    #     out_qt = rearrange(out_qt, 'b h n d -> b n (h d)')
-    #
-    #     dots_qa = einsum('b h i d, b h j d -> b h i j', q, k_a) * self.scale
-    #     attn_qa = self.softmax(dots_qa)
-    #     out_qa = einsum('b h i j, b h j d -> b h i d', attn_qa, v_a)
-    #     out_qa = rearrange(out_qa, 'b h n d -> b n (h d)')
-    #
-    #     dots_qv = einsum('b h i d, b h j d -> b h i j', q, k_v) * self.scale
-    #     attn_qv = self.softmax(dots_qv)
-    #     out_qv = einsum('b h i j, b h j d -> b h i d', attn_qv, v_v)
-    #     out_qv = rearrange(out_qv, 'b h n d -> b n (h d)')
-    #
-    #     out_tav = query + out_qt + out_qa + out_qv
-    #     out_tav = self.norm1(out_tav)
-    #
-    #     out_tav = out_tav + self.ffn(out_tav)
-    #     out_tav = self.norm2(out_tav)
-    #
-    #     return out_tav
 
     def forward(self, query, h_t, h_a, h_v):
         # 输入维度:
@@ -268,9 +230,9 @@ class Multi_CA(nn.Module):
 
 
 
-class HierarchicalMechanismBottleneckFusion(nn.Module):
+class MechanismInspiredSlotLearning(nn.Module):
     def __init__(self, d_model=256, n_heads=4, ff_dim=512, drop_out=0.5, depth=2, num_slots=4):
-        super(HierarchicalMechanismBottleneckFusion, self).__init__()
+        super(MechanismInspiredSlotLearning, self).__init__()
         assert depth >= 1, "depth must be >= 1"
 
         self.depth = depth
@@ -323,35 +285,17 @@ class HierarchicalMechanismBottleneckFusion(nn.Module):
             # 在第一层，这是槽位之间的自注意力；在后续层，这是融合信息后的整理
             query = self.encoder_q[level](query)
 
-            # B. 瓶颈压缩 (Bottleneck Compression)
-            # 这一步体现了 HBF 的精髓：每层只保留前 keep 个槽位
-            # 强迫模型把最重要的协同模式压缩到前面的槽位中
-            # query = query[:, :keep]
 
-            # if level != 0:
-            #     query = query[:, keep:]
-
-            # perm = torch.randperm(query.size(1))
-            # query = query[:, perm]
-            # query = query[:, :keep]
-
-            # C. 槽位从三方获取信息 (Gather / Extraction)
-            # Query=Slots, Key/Value=Drugs/Cell
-            # 槽位主动去"看"药物和细胞，提取相关特征
             query = self.encoder_q2tav[level](query, m_t, m_a, m_v)
 
-            # D. 三方从槽位获取反馈 (Distribute / Update)
-            # Query=Drugs/Cell, Key/Value=Slots
-            # 药物和细胞根据槽位提取出的"协同模式"来更新自己
+
             m_t = self.encoder_t[level](m_t, query)
             m_a = self.encoder_a[level](m_a, query)
             m_v = self.encoder_v[level](m_v, query)
 
-            # E. 减少下一层的槽位数量
-            #######[消融 实验]#############
+
             keep = max(1, keep // 2)
 
-        # 返回更新后的 DrugA, DrugB, Cell 特征
-        # [:, 0] 是因为输入被 unsqueeze 成了长度 1，这里 squeeze 回去
+
         return m_t[:, 0], m_a[:, 0], m_v[:, 0]
 

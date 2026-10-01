@@ -57,20 +57,13 @@ def get_split_generator(strategy, folds, datasets, seed=2025):
     # 1. Random Split (原有的分层随机划分)
     if strategy == 'random':
         skf = StratifiedKFold(n_splits=folds, shuffle=True, random_state=seed)
-        # 这里只生成 train/test，需要在外面进一步划分 valid
-        # 为了兼容你原来的 split_fold 逻辑，我们这里稍微调整一下
-        # 原 split_fold 可能是直接返回三份索引，或者我们利用 KFold 生成两份，再手动切分验证集
-
-        # 假设我们用两层切分：外层 5-Fold 切分 Test，内层切分 Valid
         for train_val_idx, test_idx in skf.split(np.zeros(num_samples), labels):
-            # 内部再划分 10% 做验证集 (从 train_val 中)
-            # 这里的 random_state 可以变化或者固定
-            inner_splitter = StratifiedKFold(n_splits=8, shuffle=True, random_state=seed)
-            train_idx, val_idx = next(inner_splitter.split(train_val_idx, labels[train_val_idx]))
-
-            # 映射回原始索引
-            train_indices = train_val_idx[train_idx]
-            valid_indices = train_val_idx[val_idx]
+            train_indices, valid_indices = train_test_split(
+                train_val_idx,
+                test_size=0.125,
+                stratify=labels[train_val_idx],
+                random_state=seed
+            )
 
             yield train_indices, valid_indices, test_idx
 

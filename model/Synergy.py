@@ -24,7 +24,7 @@ import torch
 
 class MISL(nn.Module):
     def __init__(self, max_mol_rel,
-                 used_drug_dict, used_cell_dict, input_dim, hidden_dim, output_dim, num_relations=6, proj_dim=256, depth=2, num_slots=4, dropout=0.5,
+                 used_drug_dict, used_cell_dict, input_dim, hidden_dim, output_dim, num_relations=6, proj_dim=256, depth=2, num_slots=4, dropout=0.5, n_heads=4,
                  device='cuda:0'):
         super(MISL, self).__init__()
 
@@ -56,7 +56,7 @@ class MISL(nn.Module):
                                                    nn.Dropout(dropout))
 
 
-        self.hbf = MechanismInspiredSlotLearning(d_model=proj_dim, depth=depth, num_slots=num_slots)
+        self.hbf = MechanismInspiredSlotLearning(d_model=proj_dim, depth=depth, num_slots=num_slots, n_heads=n_heads)
 
 
         self.context_modulation = DualViewCoModulation(proj_dim)

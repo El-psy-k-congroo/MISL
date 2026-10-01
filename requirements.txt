@@ -1,7 +1,15 @@
 gseapy==1.1.13
+einops
+Jinja2
 mygene==3.2.2
 networkx==3.4.2
+numpy
+openpyxl
+pandas
+Pillow
 rdkit==2024.9.6
+scikit-learn
 statsmodels==0.14.6
 torch==2.5.1
+torch-geometric
 tqdm==4.67.1

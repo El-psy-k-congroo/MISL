@@ -18,7 +18,7 @@ from tqdm import tqdm
 import time
 from torch.utils.data import DataLoader
 from dataset.my_in_memory_dataset import collate1, collate2, SynergyDataset, GraphDataset, KGDataset
-from utils.data_preprocess import get_dict_from_json_file, load_datasets, get_dict_from_df, split_fold
+from utils.data_preprocess import get_dict_from_json_file, load_datasets, get_dict_from_df, get_split_generator
 from utils.kg_utils import construct_kg
 from utils.feature_preprocess import build_aligned_features,  load_drug_data_features
 from utils.utils import setup_logger, set_random_seed, try_gpu, EarlyStopping, save, save_results
@@ -57,11 +57,15 @@ def init_args(user_args=None):
     parser.add_argument("--hidden_dim", type=int, default=600)
     parser.add_argument("--output_dim", type=int, default=300)
     parser.add_argument("--project_dim", type=int, default=256)
-    parser.add_argument("--num_heads", type=int, default=8)
+    parser.add_argument("--num_heads", type=int, default=4)
 
     parser.add_argument("--dropout", type=float, default=0.5)
 
     parser.add_argument("--alpha", type=float, default=5)
+
+    parser.add_argument('--split_strategy', type=str, default='random',
+                        choices=['random', 'cold_drug', 'cold_cell', 'cold_comb'],
+                        help='Data splitting strategy for cross-validation')
 
 
     parser.add_argument('--saved-model', type=str,
@@ -162,7 +166,7 @@ def init_model(args, parameter_dict, learning_rate, epochs, trainLoader, device)
     model = MISL(
         max_mol_rel=parameter_dict['max_mol_rel'],
         input_dim=args.input_dim, hidden_dim=args.hidden_dim, output_dim=args.output_dim, num_relations=6, proj_dim=args.project_dim,
-        depth=args.depth, num_slots=args.num_slots,
+        depth=args.depth, num_slots=args.num_slots, n_heads=args.num_heads,
         used_drug_dict=parameter_dict['used_drug_dict'],
         used_cell_dict=parameter_dict['used_cell_dict'],
     )
@@ -191,13 +195,13 @@ def main():
     batch_size = args.batch_size
     patience = args.patience
     num_epochs = args.num_epochs
+    split_strategy = args.split_strategy
 
     log_folder = os.path.join('logs/', data_type + f'{timestamp}' + '.log')
     logger = setup_logger(log_folder)
     logger.info(f'Title ===> {args.log}')
 
-
-    experiment_folder = os.path.join('experiment/', data_type,  f'{timestamp}')
+    experiment_folder = os.path.join('experiment', split_strategy, data_type, timestamp)
     if not os.path.exists(experiment_folder):
         os.makedirs(experiment_folder)
 
@@ -209,14 +213,14 @@ def main():
     folds = args.folds
     results_of_each_fold = []
 
+    split_gen = get_split_generator(split_strategy, folds, datasets, seed=args.seed)
 
-    for i, (train_indices, val_indices, test_indices) in tqdm(enumerate(
-            zip(*split_fold(folds, datasets_without_labels, labels))), desc='CV===============>>'):
-        logger.info(f'=================={i} / {folds}===============================')
+    for i, (train_indices, val_indices, test_indices) in tqdm(
+            enumerate(split_gen), total=folds, desc=f'{split_strategy} CV'):
+        logger.info(f'================== Fold {i + 1} / {folds} ({split_strategy}) ===============================')
 
         # 打印一下数据量，确保划分逻辑正确
         logger.info(f"Train Size: {len(train_indices)}, Valid Size: {len(val_indices)}, Test Size: {len(test_indices)}")
-
 
 
         train_dataloader, valid_dataloader, test_dataloader, drug_dataloader, kg_dataloader = \

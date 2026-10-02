@@ -155,6 +155,69 @@ def get_split_generator(strategy, folds, datasets, seed=2025):
         raise ValueError(f"Unknown split strategy: {strategy}")
 
 
+def build_fold_kg_views(
+        kg_data,
+        datasets,
+        train_indices,
+        valid_indices,
+        test_indices,
+        strategy,
+        kg_mode='transductive',
+):
+    """Build the KG views used for training/validation and testing in one fold.
+
+    In transductive mode, all stages use the complete knowledge graph. In
+    inductive mode, held-out drug or cell-line nodes and their incident edges
+    are masked from the training/validation graph and restored only for test
+    inference. The full graph is still used for leave-combination-out because
+    that protocol holds out pairs rather than individual entities.
+    """
+    if kg_mode not in {'transductive', 'inductive'}:
+        raise ValueError(f"Unknown kg_mode: {kg_mode}")
+
+    if kg_mode == 'transductive' or strategy not in {'cold_drug', 'cold_cell'}:
+        return kg_data, kg_data, np.array([], dtype=np.int64)
+
+    datasets = np.asarray(datasets)
+    train_valid_indices = np.concatenate([
+        np.asarray(train_indices, dtype=np.int64),
+        np.asarray(valid_indices, dtype=np.int64),
+    ])
+    test_indices = np.asarray(test_indices, dtype=np.int64)
+
+    if strategy == 'cold_drug':
+        observed_entities = np.unique(datasets[train_valid_indices, :2])
+        test_entities = np.unique(datasets[test_indices, :2])
+    else:
+        observed_entities = np.unique(datasets[train_valid_indices, 2])
+        test_entities = np.unique(datasets[test_indices, 2])
+
+    held_out_entities = np.setdiff1d(test_entities, observed_entities).astype(np.int64)
+    if held_out_entities.size == 0:
+        return kg_data, kg_data, held_out_entities
+
+    train_kg_data = kg_data.clone()
+    held_out_tensor = torch.as_tensor(
+        held_out_entities,
+        dtype=torch.long,
+        device=train_kg_data.edge_index.device,
+    )
+    incident_edge_mask = (
+        torch.isin(train_kg_data.edge_index[0], held_out_tensor)
+        | torch.isin(train_kg_data.edge_index[1], held_out_tensor)
+    )
+    keep_edge_mask = ~incident_edge_mask
+    train_kg_data.edge_index = train_kg_data.edge_index[:, keep_edge_mask]
+    train_kg_data.edge_attr = train_kg_data.edge_attr[keep_edge_mask]
+
+    # The nodes remain addressable by their global IDs, but their features and
+    # edges cannot affect message passing during training or validation.
+    train_kg_data.x = train_kg_data.x.clone()
+    train_kg_data.x[held_out_tensor] = 0
+
+    return train_kg_data, kg_data, held_out_entities
+
+
 
 def get_data_from_pickle(
         filename: str,

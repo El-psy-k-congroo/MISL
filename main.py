@@ -18,7 +18,13 @@ from tqdm import tqdm
 import time
 from torch.utils.data import DataLoader
 from dataset.my_in_memory_dataset import collate1, collate2, SynergyDataset, GraphDataset, KGDataset
-from utils.data_preprocess import get_dict_from_json_file, load_datasets, get_dict_from_df, get_split_generator
+from utils.data_preprocess import (
+    build_fold_kg_views,
+    get_dict_from_json_file,
+    load_datasets,
+    get_dict_from_df,
+    get_split_generator,
+)
 from utils.kg_utils import construct_kg
 from utils.feature_preprocess import build_aligned_features,  load_drug_data_features
 from utils.utils import setup_logger, set_random_seed, try_gpu, EarlyStopping, save, save_results
@@ -66,6 +72,9 @@ def init_args(user_args=None):
     parser.add_argument('--split_strategy', type=str, default='random',
                         choices=['random', 'cold_drug', 'cold_cell', 'cold_comb'],
                         help='Data splitting strategy for cross-validation')
+    parser.add_argument('--kg_mode', type=str, default='transductive',
+                        choices=['transductive', 'inductive'],
+                        help='KG access protocol for cold-start evaluation')
 
 
     parser.add_argument('--saved-model', type=str,
@@ -247,15 +256,31 @@ def main():
 
         mol_data = next(iter(drug_dataloader))
         kg_data = next(iter(kg_dataloader))
+        train_kg_data, test_kg_data, held_out_kg_nodes = build_fold_kg_views(
+            kg_data=kg_data,
+            datasets=datasets,
+            train_indices=train_indices,
+            valid_indices=val_indices,
+            test_indices=test_indices,
+            strategy=split_strategy,
+            kg_mode=args.kg_mode,
+        )
+        logger.info(
+            'KG mode: %s; held-out KG nodes: %d; training edges: %d/%d',
+            args.kg_mode,
+            len(held_out_kg_nodes),
+            train_kg_data.edge_index.size(1),
+            kg_data.edge_index.size(1),
+        )
 
         for epoch in tqdm(range(num_epochs), desc="Epochs", ncols=80):
 
             train_acc, train_prec, train_rec, train_f1, train_bacc, train_auc_roc, train_mcc, train_kap, train_ap, train_aupr, \
-                train_loss = train(train_dataloader, mol_data, kg_data, model, optimizer, device, cell_feature, drug_feature,
+                train_loss = train(train_dataloader, mol_data, train_kg_data, model, optimizer, device, cell_feature, drug_feature,
                                    scheduler, args.alpha)
 
             valid_acc, valid_prec, valid_rec, valid_f1, valid_bacc, valid_auc_roc, valid_mcc, valid_kap, valid_ap, valid_aupr, \
-                valid_loss = valid(valid_dataloader, mol_data, kg_data, model, device, cell_feature, drug_feature)
+                valid_loss = valid(valid_dataloader, mol_data, train_kg_data, model, device, cell_feature, drug_feature)
 
             if epoch % 10 == 0:
                 logger.info('Epoch %d, train_acc %f, valid_acc %f' % (epoch, train_acc, valid_acc))
@@ -297,9 +322,8 @@ def main():
         stopper.load_checkpoint(model)
         model.to(device)
 
-        kg_data = next(iter(kg_dataloader))
         test_acc, test_prec, test_rec, test_f1, test_bacc, test_auc_roc, test_mcc, test_kap, test_ap, test_aupr, \
-            test_loss = valid(test_dataloader, mol_data, kg_data, model, device, cell_feature, drug_feature)
+            test_loss = valid(test_dataloader, mol_data, test_kg_data, model, device, cell_feature, drug_feature)
 
         test_log['acc'].append(test_acc)
         test_log['prec'].append(test_prec)

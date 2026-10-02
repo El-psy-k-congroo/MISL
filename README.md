@@ -53,18 +53,33 @@ python main.py --dataset DrugCombDB --split_strategy random
 Cold-start evaluation:
 
 ```bash
-# Leave-drug-out
+# Transductive KG mode (default): held-out entities have no synergy labels, but
+# their non-label KG nodes and relations remain available during training.
 python main.py --dataset OncologyScreen --split_strategy cold_drug
 python main.py --dataset DrugCombDB --split_strategy cold_drug
 
-# Leave-cell-out
 python main.py --dataset OncologyScreen --split_strategy cold_cell
 python main.py --dataset DrugCombDB --split_strategy cold_cell
 
-# Leave-drug-combination-out
 python main.py --dataset OncologyScreen --split_strategy cold_comb
 python main.py --dataset DrugCombDB --split_strategy cold_comb
 ```
+
+Strict inductive KG evaluation is enabled with `--kg_mode inductive`:
+
+```bash
+# Held-out drug nodes and their incident KG edges are masked during training
+# and validation, then restored for frozen-model test inference.
+python main.py --dataset OncologyScreen --split_strategy cold_drug --kg_mode inductive
+python main.py --dataset DrugCombDB --split_strategy cold_drug --kg_mode inductive
+
+# The same protocol is applied to held-out cell-line nodes.
+python main.py --dataset OncologyScreen --split_strategy cold_cell --kg_mode inductive
+python main.py --dataset DrugCombDB --split_strategy cold_cell --kg_mode inductive
+```
+
+For `random` and `cold_comb`, `--kg_mode inductive` leaves the KG unchanged
+because these protocols do not hold out individual drug or cell-line nodes.
 
 ## Hyperparameter Settings
 

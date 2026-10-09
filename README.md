@@ -34,7 +34,9 @@ GPU driver, or every native-library build.
 
 ## Dataset Setup
 
-Download the datasets from [Google Drive](https://drive.google.com/drive/folders/1tNi_Y2DhgMu0kg3H9OKXrH1mvf-DBLTm?usp=sharing) and place them under the `data/` directory:
+The processed datasets required to run MISL are included under `data/` in this
+repository. They are also available from [Google Drive](https://drive.google.com/drive/folders/1tNi_Y2DhgMu0kg3H9OKXrH1mvf-DBLTm?usp=sharing).
+The directory structure is:
 
 ```text
 MISL/
@@ -60,6 +62,9 @@ MISL/
         ├── protein-protein_network.xlsx
         └── smile2graph.json
 ```
+
+The MIT license covers the project code. Third-party data remain subject to
+their original terms; consult the source datasets before reuse or redistribution.
 
 ## Running MISL
 

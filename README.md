@@ -2,15 +2,35 @@
 
 ## Requirements
 
-- Python 3.10
+- Python 3.10.16
 - PyTorch 2.5.1
+- CUDA runtime 11.8
 - RDKit 2024.9.6
 
-Install the required Python packages with:
+The dependency versions are pinned to the working Windows environment, tested
+with an NVIDIA GeForce RTX 3090 Ti. An NVIDIA GPU and a driver compatible with
+CUDA 11.8 are required for the GPU environment below.
+
+From the repository root, create and activate the environment:
 
 ```bash
-pip install -r requirements.txt
+conda env create -f environment.yml
+conda activate misl
 ```
+
+Alternatively, in an existing Python 3.10.16 environment, install the CUDA 11.8
+build of PyTorch first, followed by the pinned requirements:
+
+```bash
+python -m pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cu118
+python -m pip install -r requirements.txt
+```
+
+`requirements.txt` includes the project's Python dependencies and their
+transitive dependencies without optional extras; it is not a full export of
+unrelated packages from the local environment. `environment.yml` also specifies
+Python and the PyTorch CUDA runtime. Neither file pins the operating system,
+GPU driver, or every native-library build.
 
 ## Dataset Setup
 
